@@ -1,0 +1,51 @@
+declare @CollectionID varchar(8), @CollectionID2 varchar(8), @CustomerColID varchar(8)
+DECLARE @Now DateTime = GetDate()
+set @CollectionID = 'P01000BF' --workstation compliance
+set @CollectionID2 = 'P01000BF' --workstation compliance
+set @CustomerColID = 'P010002E' --Main Collection
+
+select distinct 
+	rsy.ResourceID,
+	rsy.Name0 as 'Device HostName',
+	isnull(stuff((select ';'+umr.UniqueUserName from v_UserMachineRelation umr where umr.MachineResourceID = rsy.ResourceID FOR XML PATH('')), 1, 1, ''), '') as PrimaryUsers,
+	rsy.User_Domain0 + '\' + rsy.User_Name0 as 'Last Account (AD)',
+	cs.UserName0 as 'Last Account (Inventory)',
+	chc.LastActiveTime,
+	case
+		when DATEDIFF(dd, chc.LastActiveTime, @Now) <= 1 then 'Today'
+		when DATEDIFF(dd, chc.LastActiveTime, @Now) between 2 and 3 then 'in the last 3 days'
+		when DATEDIFF(dd, chc.LastActiveTime, @Now) between 4 and 7 then 'in the last 7 days'
+		when DATEDIFF(dd, chc.LastActiveTime, @Now) > 7 then 'Over 7 days'
+		else 'Never'
+	end as LastActiveTimeDescription,
+
+	(
+		select top 1 
+		case cmcbs.CNIsOnline 
+			when 1 then 'Online'
+			else 'Offline'
+		end as CurrentStatus	
+		from 
+			v_CollectionMemberClientBaselineStatus cmcbs 
+		where 
+			cmcbs.MachineID = rsy.resourceID 
+		order by CNLastOfflineTime desc
+	) as CurrentStatus,
+	ncdpa.LastModificationTime as StatusDateTime,
+	ncd.BLName,
+	ncd.RuleName,
+	ncd.RuleStateDisplay
+	,ncdpa.ValidationRule
+	,ncdpa.DiscoveredValue
+	from v_R_System rsy 
+	inner join v_FullCollectionMembership fcm on rsy.ResourceID = fcm.ResourceID and fcm.CollectionID = @CustomerColID
+	inner join v_FullCollectionMembership fcm2 on rsy.ResourceID = fcm2.ResourceID and fcm2.CollectionID in (@CollectionID, @CollectionID2)
+	left join V_GS_COMPUTER_SYSTEM cs on cs.ResourceID = rsy.ResourceID
+	inner join v_CH_ClientSummary chc on chc.ResourceID = rsy.ResourceID and DATEDIFF(dd, chc.LastActiveTime, @Now) <= 7
+	inner join fn_DCMDeploymentNonCompliantAssetDetails(1033) AS ncd on rsy.ResourceID = ncd.AssetID AND ncd.RuleSubState = 0
+	inner join fn_DCMDeploymentNonCompliantDetailsPerAsset(1033) ncdpa on ncdpa.AssetID = ncd.AssetID and ncdpa.AssignmentID = ncd.AssignmentID and ncdpa.StatusType = 3 and ncdpa.AssetType = 0 and ncdpa.Rule_ID = ncd.Rule_ID
+	inner join v_DeploymentSummary ds on ds.FeatureType = 6 and ds.SoftwareName = ncd.BLName and ncd.TargetCollectionID = ds.CollectionID and ds.CollectionID in (@CollectionID, @CollectionID2)
+	inner join vSMS_BaselineAssignment ba on ds.CollectionID = ba.CollectionID and ds.AssignmentID = ba.AssignmentID
+where --ncd.AssignmentID = 16777573
+ncd.TargetCollectionID in (@CollectionID, @CollectionID2)
+order by 1
