@@ -1,0 +1,30 @@
+declare @CollectionID varchar(8), @CollectionID2 varchar(8), @CustomerColID varchar(8)
+DECLARE @Now DateTime = GetDate()
+set @CollectionID = 'P0100066' --SUP MS Collection
+set @CollectionID2 = 'P0100068' --SUP non-MS Collection
+set @CustomerColID = 'P010002E' --Main Collection
+
+select DisplayName, AssignmentName, [1] as 'Success', [2] 'InProgress',[4] as 'Unknown', [5] as 'Error' 
+from
+(
+	select distinct
+		sdspa.AssignmentName,
+		al.DisplayName,
+		sdspa.StatusType,
+		sdspa.resourceid
+	from vSMS_SUMDeploymentStatusPerAsset sdspa
+	inner join vSMS_UpdateGroupAssignment upg on upg.AssignmentID = sdspa.AssignmentID
+	inner join fn_ListAuthListCIs(1033) AS al on al.CI_ID = upg.AssignedUpdateGroup
+	inner join v_FullCollectionMembership fcm on sdspa.ResourceID = fcm.ResourceID and fcm.CollectionID = @CustomerColID
+	inner join v_FullCollectionMembership fcm2 on sdspa.resourceid= fcm2.resourceid and fcm2.CollectionID in (@CollectionID, @CollectionID2)
+	--inner join v_CH_ClientSummary chc on chc.ResourceID = fcm.ResourceID and DATEDIFF(dd, chc.LastActiveTime, @Now) <= 7
+
+	where
+	sdspa.CollectionID in (@CollectionID, @CollectionID2)
+	and sdspa.AssignmentName != 'ADR - Microsoft - WD Updates'
+
+) tbl
+PIVOT (
+    count(resourceid)
+    FOR StatusType IN ( [1],[2],[4],[5] )
+) as pvt

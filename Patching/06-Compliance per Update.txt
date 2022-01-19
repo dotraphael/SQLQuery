@@ -1,0 +1,48 @@
+declare @CollectionID varchar(8), @CollectionID2 varchar(8), @CustomerColID varchar(8)
+DECLARE @Now DateTime = GetDate()
+set @CollectionID = 'P0100066' --SUP MS Collection
+set @CollectionID2 = 'P0100068' --SUP non-MS Collection
+set @CustomerColID = 'P010002E' --Main Collection
+
+select Title, Classification, Publisher, UpdateDeployed, [Unknown],[Not Required],[Not Installed],[Installed]
+from
+(
+	select distinct
+		cs.ResourceID,
+		ui.Title,
+		isnull(cat.CategoryInstanceName, '') as [Classification],
+		isnull(luci.CategoryInstanceName, '') as [Publisher],
+		case ui.IsDeployed
+			when 1 then 'Yes'
+			else 'No'
+		end as [UpdateDeployed],
+		case cs.Status
+			when 0 then 'Unknown'
+			when 1 then 'Not Required'
+			when 2 then 'Not Installed'
+			when 3 then 'Installed'
+		end
+		as [Status]
+	from 
+	v_UpdateInfo ui
+	left join v_Update_ComplianceStatusAll cs on ui.CI_ID = cs.CI_ID 
+	--inner join v_R_System sys on sys.resourceid= cs.resourceid
+	inner join v_FullCollectionMembership fcm on cs.resourceid= fcm.resourceid and fcm.CollectionID = @CustomerColID
+	inner join v_FullCollectionMembership fcm2 on cs.resourceid= fcm2.resourceid and fcm2.CollectionID in (@CollectionID, @CollectionID2)
+	----inner join v_CH_ClientSummary chc on chc.ResourceID = fcm.ResourceID and DATEDIFF(dd, chc.LastActiveTime, @Now) <= 7
+	left join fn_CICategoryInfo_All(1033) cat on cat.CI_ID = ui.CI_ID and cat.CategoryTypeName = 'UpdateClassification' and cat.CategoryInstanceName not in ('Definition Updates') --'Drivers', 
+	left join fn_CICategoryInfo_All(1033) cat2 on cat2.CI_ID = ui.CI_ID and cat2.CategoryTypeName = 'Product'
+	left join fn_CICategoryInfo_All(1033) cat3 on cat3.CI_ID = ui.CI_ID and cat3.CategoryTypeName = 'Company'
+	left join fn_ListUpdateCategoryInstances(1033) luci on luci.CategoryTypeName = N'Company' AND luci.AllowSubscription = 1 and luci.CategoryInstance_UniqueID = cat3.CategoryInstance_UniqueID
+	where ui.CIType_ID in (1,8) --and ui.IsDeployed = 1
+	and ui.IsExpired = 0
+	and ui.Title not like 'Feature update%'
+	and ui.Title not like 'Upgrade to Windows 10%'
+	and ui.Title not like '%Preview%'
+	and ui.Title not like '%Beta%'
+	--and luci.CategoryInstanceName = 'Microsoft'
+) tbl
+PIVOT (
+    count(resourceid )
+    FOR Status IN ( [Unknown],[Not Required],[Not Installed],[Installed]  )
+) as pvt

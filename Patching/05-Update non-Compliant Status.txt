@@ -1,0 +1,31 @@
+declare @CollectionID varchar(8), @CollectionID2 varchar(8), @CustomerColID varchar(8)
+DECLARE @Now DateTime = GetDate()
+set @CollectionID = 'P0100066' --SUP MS Collection
+set @CollectionID2 = 'P0100068' --SUP non-MS Collection
+set @CustomerColID = 'P010002E' --Main Collection
+
+select distinct
+	sys.Netbios_Name0,
+	ui.Title,
+	cat.CategoryInstanceName as [Classification],
+	luci.CategoryInstanceName as [Publisher],
+	--cat2.CategoryInstanceName as [Product],
+	case cs.Status
+	 when 0 then 'Unknown'
+	 when 1 then 'Not Required'
+	 when 2 then 'Not Installed'
+	 when 3 then 'Installed'
+	end as [Status]
+from 
+v_UpdateInfo ui
+inner join v_UpdateComplianceStatus cs on ui.CI_ID = cs.CI_ID and cs.status in (0,2)
+inner join v_R_System sys on sys.resourceid= cs.resourceid
+inner join v_FullCollectionMembership fcm on sys.resourceid= fcm.resourceid and fcm.CollectionID = @CustomerColID
+inner join v_FullCollectionMembership fcm2 on sys.resourceid= fcm2.resourceid and fcm2.CollectionID in (@CollectionID, @CollectionID2)
+--inner join v_CH_ClientSummary chc on chc.ResourceID = fcm.ResourceID and DATEDIFF(dd, chc.LastActiveTime, @Now) <= 7
+inner join fn_CICategoryInfo_All(1033) cat on cat.CI_ID = ui.CI_ID and cat.CategoryTypeName = 'UpdateClassification' and cat.CategoryInstanceName not in ('Drivers', 'Definition Updates')
+inner join fn_CICategoryInfo_All(1033) cat2 on cat2.CI_ID = ui.CI_ID and cat2.CategoryTypeName = 'Product'
+inner join fn_CICategoryInfo_All(1033) cat3 on cat3.CI_ID = ui.CI_ID and cat3.CategoryTypeName = 'Company'
+inner join fn_ListUpdateCategoryInstances(1033) luci on luci.CategoryTypeName = N'Company' AND luci.AllowSubscription = 1 and luci.CategoryInstance_UniqueID = cat3.CategoryInstance_UniqueID
+where ui.IsDeployed = 1 and ui.CIType_ID in (1,8)
+order by 1

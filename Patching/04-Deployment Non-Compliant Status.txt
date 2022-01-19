@@ -1,0 +1,36 @@
+declare @CollectionID varchar(8), @CollectionID2 varchar(8), @CustomerColID varchar(8)
+DECLARE @Now DateTime = GetDate()
+set @CollectionID = 'P0100066' --SUP MS Collection
+set @CollectionID2 = 'P0100068' --SUP non-MS Collection
+set @CustomerColID = 'P010002E' --Main Collection
+
+select distinct
+	sdspa.DeviceName,
+	al.DisplayName, 
+	sdspa.LastComplianceMessageDesc,
+	sdspa.StatusDescription,
+	sdspa.StatusErrorCode,
+	'' as 'Error Description',
+	(
+		select top 1 
+		case cmcbs.CNIsOnline 
+			when 1 then 'Online'
+			else 'Offline'
+		end as CurrentStatus	
+		from 
+			v_CollectionMemberClientBaselineStatus cmcbs 
+		where 
+			cmcbs.MachineID = sdspa.ResourceID
+		order by CNLastOfflineTime desc
+	) as CurrentStatus
+from vSMS_SUMDeploymentStatusPerAsset sdspa
+inner join v_CIAssignment Vaa on sdspa.AssignmentID = Vaa.AssignmentID
+inner join v_DeploymentSummary Ds on vaa.AssignmentID = ds.AssignmentID
+inner join vSMS_UpdateGroupAssignment upg on upg.AssignmentID = ds.AssignmentID
+inner join fn_ListAuthListCIs(1033) AS al on al.CI_ID = upg.AssignedUpdateGroup
+inner join v_FullCollectionMembership fcm on fcm.Name = sdspa.DeviceName and fcm.CollectionID = @CustomerColID
+inner join v_FullCollectionMembership fcm2 on fcm.Name = sdspa.DeviceName and fcm2.CollectionID in (@CollectionID, @CollectionID2)
+--inner join v_CH_ClientSummary chc on chc.ResourceID = fcm.ResourceID and DATEDIFF(dd, chc.LastActiveTime, @Now) <= 7
+where sdspa.collectionid in (@CollectionID, @CollectionID2)
+and sdspa.AssignmentName != 'ADR - Microsoft - WD Updates'
+and sdspa.IsCompliant != 1
