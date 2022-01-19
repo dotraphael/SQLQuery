@@ -1,0 +1,66 @@
+declare @CollectionID varchar(8), @CollectionID2 varchar(8), @CustomerColID varchar(8)
+DECLARE @Now DateTime = GetDate()
+set @CollectionID = 'P0100066' --SUP MS Collection
+set @CollectionID2 = 'P0100068' --SUP non-MS Collection
+set @CustomerColID = 'P010002E' --Main Collection
+
+	select distinct 
+	rsy.ResourceID,
+	rsy.Name0 as 'Device HostName',
+	case rsy.Client0
+		when 1 then 'Yes'
+		else 'No'
+	end as 'SCCM Managed',
+	isnull(cr.CurrentLogonUser, '') as 'CurrentLogonUser',
+	isnull(scum.TopConsoleUser0, '') as 'TopConsoleUser',
+	isnull(cr.PrimaryUser, '') as PrimaryUser,
+	isnull(rsy.User_Domain0 + '\' + rsy.User_Name0, '') as 'Last Account (AD)',
+	isnull(cs.UserName0, '') as 'Last Account (Inventory)',
+	isnull(chc.LastActiveTime, '') as LastActiveTime,
+	case
+		when DATEDIFF(dd, chc.LastActiveTime, @Now) <= 1 then 'Today'
+		when DATEDIFF(dd, chc.LastActiveTime, @Now) between 2 and 3 then 'in the last 3 days'
+		when DATEDIFF(dd, chc.LastActiveTime, @Now) between 4 and 7 then 'in the last 7 days'
+		when DATEDIFF(dd, chc.LastActiveTime, @Now) > 7 then 'Over 7 days'
+		else 'Never'
+	end as LastActiveTimeDescription,
+
+	(
+		select top 1 
+		case cmcbs.CNIsOnline 
+			when 1 then 'Online'
+			else 'Offline'
+		end as CurrentStatus	
+		from 
+			v_CollectionMemberClientBaselineStatus cmcbs 
+		where 
+			cmcbs.MachineID = rsy.resourceID 
+		order by CNLastOfflineTime desc
+	) as CurrentStatus,
+
+	case cr.clientstate
+		when 1 then 'Configuration Manager'
+		when 2 then 'File Rename'
+		when 3 then 'Configuration Manager, File Rename'
+		when 4 then 'Windows Update'
+		when 5 then 'Configuration Manager, Windows Update'
+		when 6 then 'File Rename, Windows Update'
+		when 7 then 'Configuration Manager, File Rename, Windows Update'
+		when 8 then 'Add or Remove Feature'
+		when 9 then 'Configuration Manager, Add or Remove Feature'
+		when 10 then 'File Rename, Add or Remove Feature'
+		when 11 then 'Configuration Manager, File Rename, Add or Remove Feature'
+		when 12 then 'Windows Update, Add or Remove Feature'
+		when 13 then 'Configuration Manager, Windows Update, Add or Remove Feature'
+		when 14 then 'File Rename, Windows Update, Add or Remove Feature'
+		when 15 then 'Configuration Manager, File Rename, Windows Update, Add or Remove Feature'
+		else ''
+	end as PendingReboot
+from v_R_System rsy 
+	left join v_CombinedDeviceResources cr on cr.MachineID = rsy.ResourceID
+	left join v_GS_SYSTEM_CONSOLE_USAGE_MAXGROUP scum on scum.ResourceID = rsy.ResourceID
+	inner join v_FullCollectionMembership fcm on rsy.ResourceID = fcm.ResourceID and fcm.CollectionID = @CustomerColID
+	inner join v_FullCollectionMembership fcm2 on rsy.ResourceID = fcm2.ResourceID and fcm2.CollectionID in (@CollectionID, @CollectionID2)
+	left join V_GS_COMPUTER_SYSTEM cs on cs.ResourceID = rsy.ResourceID
+	left join v_CH_ClientSummary chc on chc.ResourceID = rsy.ResourceID --and DATEDIFF(dd, chc.LastActiveTime, @Now) <= 7	
+order by 1
